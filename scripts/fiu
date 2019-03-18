@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import re
+import subprocess
+import tempfile
+
+
+def allocate_info(info_fn, info_str):
+    bs = 256
+    if len(info_str) > bs:
+        raise RuntimeError('Too big info')
+
+    with open(info_fn, 'ab') as f:
+        off = f.tell()
+        f.write(info_str.encode())
+        f.write((bs - len(info_str)) * b'\x00')
+    return off // bs
+
+
+def convert_failinfo(info_fn, instr, high_id=False):
+    def matchf(m):
+        info_id = allocate_info(info_fn, m.group('info'))
+        if high_id:
+            info_id += 1 << 32
+        return 'failinfo={}'.format(info_id)
+    r = re.sub(r'failinfo=(?P<info>[^,]*)', matchf, instr)
+
+    return r
+
+
+def collect_other_args(args):
+    others = []
+    if hasattr(args, 'f') and args.f is not None:
+        others += ['-f', args.f]
+    if hasattr(args, 'l') and args.l:
+        others += ['-l', args.l]
+    if hasattr(args, 'x') and args.x:
+        others += ['-x']
+    if hasattr(args, 'n') and args.n:
+        others += ['-n']
+
+    return others
+
+
+def do_run(args, *kargs):
+    # use environment
+
+    # use dry run to get necessary parameters
+    # info_fn = '/tmp/fiu-ctrl-info-{}'.format(pid)
+    with tempfile.NamedTemporaryFile(prefix='fiu-ctrl-info-') as tf:
+        c_with_id = []
+        for c in args.c:
+            c_with_id += ['-c', convert_failinfo(tf.name, c, True)]
+
+        nenv = os.environ.copy()
+        nenv["FIU_INFO_FILE"] = tf.name
+
+        cmd = ["fiu-run", *c_with_id, *collect_other_args(args), *kargs]
+        print('Running: ' + ' '.join(cmd))
+        return subprocess.run(cmd, env=nenv)
+
+
+def do_ctrl(args, *kargs):
+    # use cli
+    pids = args.pid
+    if len(pids) != 1:
+        raise RuntimeError('Can only do one pid at once!')
+    pid = pids[0]
+
+    info_fn = '/tmp/fiu-ctrl-info-{}'.format(pid)
+    c_with_id = []
+    for c in args.c:
+        c_with_id += ['-c', convert_failinfo(info_fn, c)]
+
+    cmd = ["fiu-ctrl", *c_with_id, *collect_other_args(args), pid]
+    print('Running: ' + ' '.join(cmd))
+    return subprocess.run(cmd)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Proxy for fiu-run and fiu-ctrl')
+    parser.set_defaults(func=None)
+    subparsers = parser.add_subparsers()
+    parser_run = subparsers.add_parser('run')
+    parser_run.add_argument('-c', type=str, action='append', default=[])
+    parser_run.add_argument('-n', action='store_true')
+    parser_run.add_argument('-x', action='store_true')
+    parser_run.add_argument('-f', type=str)
+    parser_run.add_argument('-l', type=str)
+    parser_run.set_defaults(func=do_run)
+    parser_ctrl = subparsers.add_parser('ctrl')
+    parser_ctrl.add_argument('-c', type=str, action='append', default=[])
+    parser_ctrl.add_argument('-n', action='store_true')
+    parser_ctrl.add_argument('-f', type=str)
+    parser_ctrl.add_argument('pid', type=str, nargs=1)
+    parser_ctrl.set_defaults(func=do_ctrl)
+    args, passthrough = parser.parse_known_args()
+
+    if args.func is None:
+        parser.print_help()
+        return 0
+
+    return args.func(args, *passthrough)
+
+
+if __name__ == '__main__':
+    main()

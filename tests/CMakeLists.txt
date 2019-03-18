@@ -73,6 +73,14 @@ if(TESTSUITE_VALGRIND)
     set_tests_properties(test_leak PROPERTIES WILL_FAIL TRUE)
 endif()
 
+if(FAULT_INJECTION)
+    #add_aktualizr_test(NAME fiuinfo SOURCES fiuinfo_test.c)
+    add_executable(t_fiuinfo EXCLUDE_FROM_ALL fiuinfo_test)
+    target_link_libraries(t_fiuinfo aktualizr_static_lib ${TEST_LIBS})
+    add_dependencies(build_tests t_fiuinfo)
+    add_test(NAME test_fiuinfo COMMAND ${PROJECT_SOURCE_DIR}/scripts/fiu run -c "enable name=fail,failinfo=test" -- $<TARGET_FILE:t_fiuinfo> ${PROJECT_SOURCE_DIR}/scripts/fiu ${GOOGLE_TEST_OUTPUT})
+endif()
+
 
 add_executable(aktualizr_uptane_vector_tests uptane_vector_tests.cc)
 target_link_libraries(aktualizr_uptane_vector_tests aktualizr_static_lib ${TEST_LIBS})

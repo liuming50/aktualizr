@@ -18,6 +18,12 @@ For example, when using the fake package manager:
 
     fiu-run -c 'enable name=fake_package_install' aktualizr -c . once
 
+Our wrapper script in `./scripts/fiu` can be used in place, with the added feature of passing strings in failinfo parameters.
+
+Usage is as follow:
+
+    ./scripts/fiu run -c 'enable name=fake_package_install,failinfo=reason' -- aktualizr -c . once
+
 == List of fail points
 
 Please try to keep this list up-to-date when inserting/removing fail points.
