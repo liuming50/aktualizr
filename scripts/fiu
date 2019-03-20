@@ -3,7 +3,6 @@
 import argparse
 import os
 import re
-import subprocess
 import tempfile
 
 
@@ -47,19 +46,19 @@ def collect_other_args(args):
 def do_run(args, *kargs):
     # use environment
 
-    # use dry run to get necessary parameters
-    # info_fn = '/tmp/fiu-ctrl-info-{}'.format(pid)
-    with tempfile.NamedTemporaryFile(prefix='fiu-ctrl-info-') as tf:
-        c_with_id = []
-        for c in args.c:
-            c_with_id += ['-c', convert_failinfo(tf.name, c, True)]
+    # note: temporary file will be leaked, we can't clean after run
+    #       becase we're exec-ing
+    tf = tempfile.NamedTemporaryFile(prefix='fiu-ctrl-info-')
+    c_with_id = []
+    for c in args.c:
+        c_with_id += ['-c', convert_failinfo(tf.name, c, True)]
 
-        nenv = os.environ.copy()
-        nenv["FIU_INFO_FILE"] = tf.name
+    nenv = os.environ.copy()
+    nenv["FIU_INFO_FILE"] = tf.name
 
-        cmd = ["fiu-run", *c_with_id, *collect_other_args(args), *kargs]
-        print('Running: ' + ' '.join(cmd))
-        return subprocess.run(cmd, env=nenv)
+    cmd = ["fiu-run", *c_with_id, *collect_other_args(args), *kargs]
+    print('Running: ' + ' '.join(cmd))
+    os.execvpe(cmd[0], cmd, nenv)
 
 
 def do_ctrl(args, *kargs):
@@ -76,7 +75,7 @@ def do_ctrl(args, *kargs):
 
     cmd = ["fiu-ctrl", *c_with_id, *collect_other_args(args), pid]
     print('Running: ' + ' '.join(cmd))
-    return subprocess.run(cmd)
+    os.execvp(cmd[0], cmd)
 
 
 def main():
