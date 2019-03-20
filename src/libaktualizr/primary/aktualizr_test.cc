@@ -104,6 +104,61 @@ TEST(Aktualizr, FullNoUpdates) {
 }
 
 /*
+ * Unit test for device installation result computation
+ */
+TEST(Aktualizr, DeviceInstallationResult) {
+  TemporaryDirectory temp_dir;
+  auto http = std::make_shared<HttpFake>(temp_dir.Path());
+  Config conf = UptaneTestCommon::makeTestConfig(temp_dir, http->tls_server);
+
+  auto storage = INvStorage::newStorage(conf.storage);
+
+  EcuSerials serials{
+      {Uptane::EcuSerial("primary"), Uptane::HardwareIdentifier("primary_hw")},
+      {Uptane::EcuSerial("ecuserial3"), Uptane::HardwareIdentifier("hw_id3")},
+  };
+  storage->storeEcuSerials(serials);
+
+  Aktualizr aktualizr(conf, storage, http);
+
+  // TODO: was stolen from other test, refactor
+  Uptane::SecondaryConfig ecu_config;
+  ecu_config.secondary_type = Uptane::SecondaryType::kVirtual;
+  ecu_config.partial_verifying = false;
+  ecu_config.full_client_dir = temp_dir.Path();
+  ecu_config.ecu_serial = "ecuserial3";
+  ecu_config.ecu_hardware_id = "hw_id3";
+  ecu_config.ecu_private_key = "sec.priv";
+  ecu_config.ecu_public_key = "sec.pub";
+  ecu_config.firmware_path = temp_dir / "firmware.txt";
+  ecu_config.target_name_path = temp_dir / "firmware_name.txt";
+  ecu_config.metadata_path = temp_dir / "secondary_metadata";
+
+  aktualizr.AddSecondary(Uptane::SecondaryFactory::makeSecondary(ecu_config));
+
+  aktualizr.Initialize();
+
+  storage->saveEcuInstallationResult(Uptane::EcuSerial("ecuserial3"), data::InstallationResult());
+  storage->saveEcuInstallationResult(Uptane::EcuSerial("primary"), data::InstallationResult());
+  storage->saveEcuInstallationResult(Uptane::EcuSerial("primary"),
+                                     data::InstallationResult(data::ResultCode::Numeric::kInstallFailed, ""));
+
+  data::InstallationResult result;
+  aktualizr.uptane_client_->computeDeviceInstallationResult(&result, "correlation_id");
+  auto res_json = result.toJson();
+  EXPECT_EQ(res_json["code"].asString(), "primary_hw:INSTALL_FAILED");
+  EXPECT_EQ(res_json["success"], false);
+
+  storage->saveEcuInstallationResult(
+      Uptane::EcuSerial("ecuserial3"),
+      data::InstallationResult(data::ResultCode(data::ResultCode::Numeric::kInstallFailed, "SECOND_FAIL"), ""));
+  aktualizr.uptane_client_->computeDeviceInstallationResult(&result, "correlation_id");
+  res_json = result.toJson();
+  EXPECT_EQ(res_json["code"].asString(), "primary_hw:INSTALL_FAILED|hw_id3:SECOND_FAIL");
+  EXPECT_EQ(res_json["success"], false);
+}
+
+/*
  * Add secondaries via API
  */
 TEST(Aktualizr, AddSecondary) {
